@@ -2,10 +2,11 @@
 *.whl
 
 # Custom stuff
-certs/
+certs/client_certs/
+certs/srv_certs/
 server_out/
-*.pem
-*.key
+#*.pem
+#*.key
 *.pcapng
 
 # PyCharm
