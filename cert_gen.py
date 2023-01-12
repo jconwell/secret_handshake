@@ -1,7 +1,8 @@
 import random
 import string
 from datetime import datetime, timedelta
-
+from pathlib import Path
+import cryptography
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import NameOID
@@ -150,3 +151,13 @@ def get_cert_msg(cert, bytes_2_text=True):
         print(f"WARN: no client msg found: {cert.extensions}")
     print(f"Parsed x509 cert with message '{msg}', data payload length {msg_data_len}")
     return msg, msg_data
+
+
+def init_cert_gen(gen_cert_path, ca_cert_path, ca_key_path, passphrase):
+    Path(gen_cert_path).mkdir(parents=True, exist_ok=True)
+    with open(ca_cert_path, 'rb') as handle:
+        ca_cert_bytes = handle.read()
+        ca_cert = cryptography.x509.load_pem_x509_certificate(ca_cert_bytes, backend=default_backend)
+    with open(ca_key_path, 'rb') as handle:
+        ca_key = cryptography.hazmat.primitives.serialization.load_pem_private_key(handle.read(), password=passphrase)
+    return ca_key, ca_cert

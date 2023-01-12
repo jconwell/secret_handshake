@@ -1,11 +1,9 @@
 import time
 import socket
 import ssl
-import cryptography
 from cryptography import x509
-from cryptography.hazmat.backends import default_backend
 from codetiming import Timer
-from cert_gen import gen_msg_cert, get_cert_msg
+from cert_gen import gen_msg_cert, get_cert_msg, init_cert_gen
 
 timer = Timer(name="class")
 last_time = 0.0
@@ -112,11 +110,7 @@ def listen_for_client(listen_addr, listen_port, ca_cert_path, cmd_cert):
 
 def start_server(listen_addr, listen_port, cert_root_path, ca_cert_path, ca_key_path, passphrase, subject, beacon_interval, beacon_jitter, output_dir):
     gen_cert_path = f"{cert_root_path}/srv_certs"
-    with open(ca_cert_path, 'rb') as handle:
-        ca_cert_bytes = handle.read()
-        ca_cert = cryptography.x509.load_pem_x509_certificate(ca_cert_bytes, backend=default_backend)
-    with open(ca_key_path, 'rb') as handle:
-        ca_key = cryptography.hazmat.primitives.serialization.load_pem_private_key(handle.read(), password=passphrase)
+    ca_key, ca_cert = init_cert_gen(gen_cert_path, ca_cert_path, ca_key_path, passphrase)
 
     # beacon interval and jitter
     wait_cmd = ("wait", f"{beacon_interval},{beacon_jitter}")

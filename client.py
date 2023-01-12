@@ -4,10 +4,8 @@ from os import path
 import socket
 import ssl
 import random
-import cryptography
 from cryptography import x509
-from cryptography.hazmat.backends import default_backend
-from cert_gen import gen_msg_cert, get_cert_msg
+from cert_gen import gen_msg_cert, get_cert_msg, init_cert_gen
 
 
 def run_bash_cmd(cmd):
@@ -102,11 +100,7 @@ def pos_or_neg():
 def start_client(host_addr, host_port, cert_root_path, ca_cert_path, ca_key_path, passphrase, subject,
                  server_sni_hostname, beacon_interval, beacon_jitter, max_block_size, data_jitter):
     gen_cert_path = f"{cert_root_path}/client_certs"
-    with open(ca_cert_path, 'rb') as handle:
-        ca_cert_bytes = handle.read()
-        ca_cert = cryptography.x509.load_pem_x509_certificate(ca_cert_bytes, backend=default_backend)
-    with open(ca_key_path, 'rb') as handle:
-        ca_key = cryptography.hazmat.primitives.serialization.load_pem_private_key(handle.read(), password=passphrase)
+    ca_key, ca_cert = init_cert_gen(gen_cert_path, ca_cert_path, ca_key_path, passphrase)
 
     # pre-create the request command
     request_msg_cert = gen_msg_cert(gen_cert_path, ca_cert, ca_key, subject, msg="request")
