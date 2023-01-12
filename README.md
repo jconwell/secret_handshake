@@ -2,10 +2,21 @@
 
 <img src="assets/secret_handshake.gif" width="1000" />
 
+## Motivation
+First off, why would I open source this? 
+
+MITRE ATT&CK only talks about stolen or self-signed certs, and NDRs 
+(as far as I can tell) pay very little attention to the content of x509 certificates outside of who is 
+the issuing CA. In general x509 certificates are trusted and  allowed to pass through our firewalls
+with impunity. But in essence they are just files that can easily contain malicious payloads like any other. 
+We trust and ignore them because they are a core component to an encryption process that we’ve come to take 
+for granted. The primary goal of this project is to bring a heightened awareness to a class of security indicator 
+that we have come to trust, and highlight methods that can be used to detect malicious uses of it.
+
 ## Background
-I always wondered if threat actors ever used x509 certificates as part of their C2 communication, not to encrypt 
-the network traffic but to actually embed the C2 communication in the x509 cert. After searching for something like 
-this in the wild for 5 years I finally decided to just code it myself to see if it's possible...it is
+I always wondered if threat actors have ever used x509 certificates as part of their C2 communication, not to encrypt 
+the network traffic, but to actually embed the C2 communication in the x509 cert. After searching for something like 
+this in the wild for 5 years I finally decided to just code it myself to see if it's possible...it is.
 
 Every single encrypted message sent over HTTPS/TLS is enabled by the transfer of an x509 certificate. 
 When establishing a TLS handshake (figure below), during the fourth step the server sends its x509 certificate 
@@ -14,12 +25,12 @@ and chooses which algorithm to use for all further communication.
 
 ![Figure 1](assets/tls_flow.png)
 
-As this diagram shows, there is only a one-way transfer of the x509 certificate, from the server to the client.
+As this diagram shows, this is only a one-way transfer of the x509 certificate from the server to the client.
 This does not lend itself well to C2 communication because there is no way for the client to respond back
-to the server. At best it could only be used as a one-way data transfer mechanism. 
+to the server. At best, it could only be used as a one-way data transfer mechanism (see prior art section below). 
 
 But there is another type of TLS session called mutual TLS Authentication (mTLS), where both the client and the server 
-exchange x509 certificates as a way of authenticating each other.
+exchange x509 certificates as a way to authenticate each other.
 
 ![Figure 2](assets/mtls_flow.png)
 
@@ -31,7 +42,7 @@ This exchange of artifacts represents an opportunity to create a 2-way communica
 
 Since the server and client certificates are exchanged by the underlying SSL library
 there isn't an opportunity for the client to pull the message out of the server's cert, run the command,
-and generate a new certificate with its response all within a single mTLS connections. This means the C2 channel
+and generate a response certificate all within a single mTLS connections. This means the C2 channel
 needs to be designed such that the request-reply exchange takes place over two different mutual TLS connections, 
 kind of like a pseudo-half duplex transmission mode.
 
@@ -61,17 +72,16 @@ output from the client certificate.
 - Step 14: the client sleeps for the interval specified by the server.
 
 ## Prior Art
-After I got this working I was pretty proud of myself for being all creative and stuff. Then I ran across [this BSides talk by
-Jason Reaves](https://www.netresec.com/?page=Blog&month=2018-02&post=Examining-an-x509-Covert-Channel) who 
-wrote a malware binary dropper using x509 certs over TLS. 
+After I got this working I was pretty proud of myself for being all creative and stuff.
 
-A year later Jason [published this paper](https://vixra.org/pdf/1801.0016v1.pdf) detailing a full 2 way 
-communication channel using mTLS.
+Then I ran across this [BSides talk in 2018 by Jason Reaves](https://www.netresec.com/?page=Blog&month=2018-02&post=Examining-an-x509-Covert-Channel) 
+who wrote a malware binary dropper using x509 certs over TLS. A year later Jason 
+[published this paper](https://vixra.org/pdf/1801.0016v1.pdf) detailing a full 2 way communication channel using mTLS.
 
 ## Instructions To Run
 
-mTLS requires that both the client and the server's certificates are signed by the same CA cert, to the first 
-step is to generate your own certificate authority private key / certificate pair
+mTLS requires that both the client and the server's certificates are signed by the same CA cert, so the first 
+step is to generate your own CA private key / certificate pair
 
 Create root CA private key:
 
@@ -95,7 +105,7 @@ Start the server:
 `python server.py`
 
 ## Detections
-_I never want to release something malicious without also detailing how to detect it in your network logs._
+_I never want to release something potentially malicious without also detailing how to detect it in your network logs._
 
 You'd think detecting this type of TLS pattern would be easy, but it's not that simple. One of the main tells 
 of this C2 channel is its half-duplex style of communication; it takes two mutual authentication flows to complete 
@@ -105,11 +115,11 @@ is sending different commands to the client.
 This means you should look for:
 - Multiple mTLS sessions between the same source and destination IP, probably on the same port, though it wouldn't be 
 hard to configure this to walk different ports per mTLS connection. 
-- Since the request-reply pattern requires two mTLS session per server command, look for 2 mTLS session fairly 
-close together, but with a longer pause between the next pair of mTLS sessions.
-- Look for sleep and jitter times between mTLS sessions the same as you would any other C2 channel
+- Since the request-reply pattern requires two mTLS session per server command look for 2 mTLS session fairly 
+close together, with a longer pause between the next pair of mTLS sessions.
+- Look for sleep and jitter times between pairs of mTLS sessions the same as you would any other C2 channel
 - The cert hashes should be different for each mTLS session, as new certs are generated per session
-- Certs will not be issued by trusted certificate authorities 
+- Certs will not be issued by trusted certificate authorities
 - x509 certificate byte sizes will also vary per session. Small server certs should indicate commands being sent
 to the client, but larger certs would most likely indicate a download of a malicious binary. Client certs
 will probably vary in size more than server command certs, since they are embedding command output. Large
@@ -132,10 +142,10 @@ are a set of enterprise services that also have a similar mTLS traffic pattern, 
 - Alert Logic
 
 Several of these seem to be asset/device management services, so in theory they should be sending the same set 
-of certificates each time they run through all their devices. So you could look to see if there are sets of
+of certificates each time they run through all their devices. You could look to see if there are sets of
 multiple mTLS session repeating every N hours, and then see if the cert hashes between two different sets
-of mTLS sessions match, or mostly match. Also, potentially look for the client certs to be different for each mTLS session, 
-but the same server cert across all sessions.
+of mTLS sessions match, or mostly match. Also, potentially look for the client certs to be different for each mTLS 
+session, but the same server cert across all sessions.
 
 ## Potential Mitigation
 
