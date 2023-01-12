@@ -1,6 +1,7 @@
 import time
 import socket
 import ssl
+from pathlib import Path
 from cryptography import x509
 from codetiming import Timer
 from cert_gen import gen_msg_cert, get_cert_msg, init_cert_gen
@@ -62,6 +63,7 @@ def do_exfil(listen_addr, listen_port, ca_cert_path, cmd_cert, output_dir):
     """ Create a socket for data exfiltration of a multipart file. This function
     loops through the client cert messages until the file is fully exfiltrated.
     """
+    Path(output_dir).mkdir(parents=True, exist_ok=True)
     msg_cert, msg_key = cmd_cert
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
