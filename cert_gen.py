@@ -32,7 +32,7 @@ During data exfiltration I'm getting about
 """
 
 
-def gen_msg_cert(cert_root_path, ca_cert, ca_key, subject, validity_end=1, msg=None, data=None, san_hosts=None):
+def gen_msg_cert(cert_root_path, ca_cert, ca_key, subject, validity_end=80, msg=None, data=None, san_hosts=None):
     """ Generate a msg cert, signed by the root cert """
 
     data_len = 0
@@ -61,7 +61,7 @@ def gen_msg_cert(cert_root_path, ca_cert, ca_key, subject, validity_end=1, msg=N
                .issuer_name(ca_cert.subject)
                .public_key(cert_key.public_key())
                .serial_number(x509.random_serial_number())
-               .not_valid_before(datetime.utcnow())
+               .not_valid_before(datetime.utcnow() - timedelta(days=10))
                .not_valid_after(datetime.utcnow() + timedelta(days=validity_end))
                .add_extension(get_san_ext(san_hosts), critical=False))
 
