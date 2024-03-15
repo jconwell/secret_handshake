@@ -55,7 +55,7 @@ class Colors:
     ITALICS = '\033[3m'
 
 
-def gen_msg_cert(cert_root_path, ca_cert, ca_key, subject, validity_end=80, msg=None, data=None, san_hosts=None):
+async def gen_msg_cert(cert_root_path, ca_cert, ca_key, subject, validity_end=80, msg=None, data=None, san_hosts=None):
     """ Generate a msg cert, signed by the root cert """
 
     data_len = 0
@@ -146,7 +146,7 @@ def get_payload_ext(data_blob):
         encoder.output())
 
 
-def get_cert_msg(cert, bytes_2_text=True):
+async def get_cert_msg(cert, bytes_2_text=True):
     """ Pull the message and data payload out of the cert """
     msg = None
     msg_data = None
@@ -176,7 +176,7 @@ def get_cert_msg(cert, bytes_2_text=True):
     return msg, msg_data
 
 
-def init_cert_gen(gen_cert_path, ca_cert_path, ca_key_path, passphrase):
+async def init_cert_gen(gen_cert_path, ca_cert_path, ca_key_path, passphrase):
     Path(gen_cert_path).mkdir(parents=True, exist_ok=True)
     with open(ca_cert_path, 'rb') as handle:
         ca_cert_bytes = handle.read()

